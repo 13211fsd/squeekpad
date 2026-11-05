@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 40%22%3E%3Ccircle cx=%2220%22 cy=%2220%22 r=%2217%22 fill=%22none%22 stroke=%22%23f08a24%22 stroke-width=%224%22/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SqueekPad — hamster-powered testnet launchpad</title>
+<meta name="description" content="Launch and trade testnet tokens on a bonding curve for the Squeekchain community. Squeek NFT holders trade fee-free. Graduates to Uniswap V2 on Sepolia.">
+<!-- SQUEEKCHAIN_VERIFY_TAG: paste the page tag from your Genesis profile on the next line -->
+
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a href="#" class="brand"><svg width="30" height="30" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="3"/><g stroke="currentColor" stroke-width="1.5"><line x1="20" y1="3" x2="20" y2="37"/><line x1="3" y1="20" x2="37" y2="20"/><line x1="8" y1="8" x2="32" y2="32"/><line x1="32" y1="8" x2="8" y2="32"/></g><ellipse cx="20" cy="27" rx="8" ry="6" fill="var(--accent)"/><circle cx="25" cy="23" r="4" fill="var(--accent)"/></svg>SqueekPad</a>
+  <span class="pill" id="wheel"><span class="dot"></span><span>…</span></span>
+  <nav>
+    <a href="#">Launches</a>
+    <a href="#create" class="btn primary small">+ Launch</a>
+    <button class="btn small" id="connect">Connect</button>
+  </nav>
+</header>
+
+<div class="banner" id="netBanner" hidden></div>
+
+<main id="app"></main>
+
+<footer>
+  <p>Testnet only (Sepolia). Tokens here have no value. Ownerless contract: no admin keys, no pause, no withdraw.</p>
+  <p>Fan-made for the Squeekchain community; not affiliated with the Squeekchain team. <a id="srcLink" href="https://github.com/YOUR_GITHUB/squeekpad" target="_blank" rel="noopener">Source</a> · <a id="padLink" target="_blank" rel="noopener">Contract</a></p>
+</footer>
+
+<script src="ethers.umd.min.js"></script>
+<script src="contracts.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

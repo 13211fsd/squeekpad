@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 40%22%3E%3Ccircle cx=%2220%22 cy=%2220%22 r=%2217%22 fill=%22none%22 stroke=%22%23f08a24%22 stroke-width=%224%22/%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deploy SqueekPad</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main style="max-width:640px">
+  <div class="card">
+    <h2>Deploy SqueekPad to Sepolia</h2>
+    <p>Deploys the ownerless SqueekPad contract from your own wallet. You keep no special rights over it afterwards.</p>
+    <dl class="kv">
+      <dt>Virtual ETH</dt><dd id="v"></dd>
+      <dt>Squeek NFT</dt><dd id="n"></dd>
+      <dt>Uniswap V2 factory</dt><dd id="f"></dd>
+      <dt>WETH</dt><dd id="w"></dd>
+    </dl>
+    <button class="btn primary mt" id="go">Deploy with my wallet</button>
+    <p class="msg" id="msg"></p>
+    <pre id="out" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+  </div>
+</main>
+<script src="ethers.umd.min.js"></script>
+<script src="contracts.js"></script>
+<script src="config.js"></script>
+<script>
+const C = window.SQUEEKPAD_CONFIG, $ = s => document.querySelector(s);
+$("#v").textContent = C.VIRTUAL_ETH + " ETH"; $("#n").textContent = C.SQUEEK_NFT; $("#f").textContent = C.UNI_V2_FACTORY; $("#w").textContent = C.WETH;
+$("#go").onclick = async () => {
+  const m = $("#msg");
+  try {
+    if (!window.ethereum) throw new Error("No browser wallet found");
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+    const hex = "0x" + C.CHAIN_ID.toString(16);
+    if (await window.ethereum.request({ method: "eth_chainId" }) !== hex) await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] });
+    const signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
+    const f = new ethers.ContractFactory(window.PAD_ABI, window.PAD_BYTECODE, signer);
+    m.textContent = "Confirm in your wallet…";
+    const c = await f.deploy(ethers.parseEther(C.VIRTUAL_ETH), C.SQUEEK_NFT, C.UNI_V2_FACTORY, C.WETH);
+    m.textContent = "Deploying… " + c.deploymentTransaction().hash;
+    const rc = await c.deploymentTransaction().wait();
+    m.className = "msg ok"; m.textContent = "Deployed. Put these into config.js:";
+    $("#out").textContent = `PAD: "${await c.getAddress()}",\nPAD_BLOCK: ${rc.blockNumber},`;
+  } catch (e) { m.className = "msg err"; m.textContent = e.shortMessage || e.message; }
+};
+</script>
+</body>
+</html>
