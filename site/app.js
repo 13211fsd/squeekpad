@@ -12,6 +12,9 @@ const CHAIN_HEX = "0x" + C.CHAIN_ID.toString(16);
 const rpc = new ethers.JsonRpcProvider(C.RPC, C.CHAIN_ID, { staticNetwork: true });
 const padRead = C.PAD ? new ethers.Contract(C.PAD, window.PAD_ABI, rpc) : null;
 const padIface = new ethers.Interface(window.PAD_ABI);
+const imgIface = new ethers.Interface(window.IMAGES_ABI);
+const IMAGE_MIMES = ["image/webp", "image/png", "image/jpeg"];
+const images = new Map(); // token -> data: URL (latest ImageSet from the coin's creator)
 
 let account = null, signer = null, renderSeq = 0;
 
@@ -29,18 +32,21 @@ function errText(e) {
   const data = e?.data || e?.info?.error?.data;
   if (typeof data === "string" && data.length >= 10) { try { return padIface.parseError(data).name; } catch {} }
   if (e?.code === "ACTION_REJECTED" || e?.code === 4001) return "Cancelled in wallet";
+  if (typeof data === "string" && data.length >= 10) { try { return imgIface.parseError(data).name; } catch {} }
   return e?.shortMessage || e?.reason || e?.message || String(e);
 }
 function avatar(addr, size = 44) {
+  const img = images.get(addr);
+  if (img) return `<img class="avatar" width="${size}" height="${size}" src="${img}" alt="">`;
   const h = parseInt(addr.slice(2, 8), 16), hue = h % 360, hue2 = (hue + 40) % 360;
   return `<svg class="avatar" width="${size}" height="${size}" viewBox="0 0 44 44" aria-hidden="true"><rect width="44" height="44" rx="12" fill="hsl(${hue2} 70% 88%)"/><ellipse cx="20" cy="28" rx="13" ry="10" fill="hsl(${hue} 60% 55%)"/><circle cx="29" cy="21" r="8" fill="hsl(${hue} 60% 55%)"/><circle cx="26" cy="14" r="3.5" fill="hsl(${hue} 60% 45%)"/><ellipse cx="32" cy="24" rx="4" ry="3" fill="#fff6ea"/><circle cx="31" cy="19" r="1.6" fill="#2b1a0e"/><circle cx="36.5" cy="21.5" r="1.2" fill="#2b1a0e"/></svg>`;
 }
 
 // chunked getLogs from the pad's deploy block
-async function getLogs(filter) {
+async function getLogs(filter, startBlock = C.PAD_BLOCK) {
   const head = await rpc.getBlockNumber();
   const out = [];
-  for (let from = C.PAD_BLOCK; from <= head; from += 40000) {
+  for (let from = startBlock; from <= head; from += 40000) {
     const to = Math.min(head, from + 39999);
     out.push(...await rpc.getLogs({ ...filter, fromBlock: from, toBlock: to }));
   }
@@ -107,11 +113,64 @@ async function needWallet() {
 }
 function alertMsg(t) { const m = document.querySelector(".msg"); if (m) { m.className = "msg err"; m.textContent = t; } else console.warn(t); }
 
+// ---------------------------------------------------------------- images (onchain, from ImageSet logs)
+async function loadImages() {
+  if (!C.IMAGES) return;
+  const logs = await getLogs({ address: C.IMAGES, topics: [imgIface.getEvent("ImageSet").topicHash] }, C.IMAGES_BLOCK);
+  for (const l of logs) {           // logs come in chain order, so the latest wins
+    const ev = imgIface.parseLog(l);
+    if (!IMAGE_MIMES.includes(ev.args.mime)) continue;
+    images.set(ethers.getAddress(ev.args.token), `data:${ev.args.mime};base64,${ethers.encodeBase64(ev.args.data)}`);
+  }
+}
+// Square-crop and shrink a picked file to a small WebP (JPEG fallback) that fits the 24KB onchain cap.
+async function shrinkImage(file) {
+  if (!file.type.startsWith("image/")) throw new Error("Pick an image file");
+  const bmp = await createImageBitmap(file);
+  const side = Math.min(bmp.width, bmp.height), size = 160;
+  const cv = document.createElement("canvas"); cv.width = cv.height = size;
+  cv.getContext("2d").drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, size, size);
+  for (const [mime, q] of [["image/webp", 0.85], ["image/webp", 0.7], ["image/webp", 0.5], ["image/jpeg", 0.7], ["image/jpeg", 0.5]]) {
+    const blob = await new Promise(r => cv.toBlob(r, mime, q));
+    if (!blob || blob.type !== mime) continue;           // browser can't encode this type
+    if (blob.size > 24000) continue;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    return { mime, bytes, url: `data:${mime};base64,${ethers.encodeBase64(bytes)}` };
+  }
+  throw new Error("Couldn't shrink that image under 24KB");
+}
+async function sendImage(token, img) {
+  await ensureChain();
+  const s = await new ethers.BrowserProvider(window.ethereum).getSigner();
+  const reg = new ethers.Contract(C.IMAGES, window.IMAGES_ABI, s);
+  const tx = await reg.setImage(token, img.mime, img.bytes);
+  await tx.wait();
+  images.set(ethers.getAddress(token), img.url);
+  return tx;
+}
+function imagePicker(id) {
+  return `<div class="pick"><span id="${id}Prev" class="avatar ph">🐹</span><label class="btn small" for="${id}">Choose image</label><input id="${id}" type="file" accept="image/*" hidden><small class="hint" id="${id}Info">PNG/JPG/WebP · cropped square · stored onchain</small></div>`;
+}
+function wirePicker(id, onPick) {
+  $("#" + id).onchange = async () => {
+    const f = $("#" + id).files[0]; if (!f) return;
+    try {
+      const img = await shrinkImage(f);
+      $("#" + id + "Prev").outerHTML = `<img id="${id}Prev" class="avatar" src="${img.url}" alt="">`;
+      $("#" + id + "Info").textContent = `${(img.bytes.length / 1024).toFixed(1)} KB ${img.mime.split("/")[1]}`;
+      onPick(img);
+    } catch (e) { $("#" + id + "Info").textContent = e.message; onPick(null); }
+  };
+}
+
 // ---------------------------------------------------------------- data
 let cache = { at: 0, launches: [] };
 async function loadLaunches(force) {
   if (!force && Date.now() - cache.at < 15000) return cache.launches;
-  const logs = await getLogs({ address: C.PAD, topics: [padIface.getEvent("Launched").topicHash] });
+  const [logs] = await Promise.all([
+    getLogs({ address: C.PAD, topics: [padIface.getEvent("Launched").topicHash] }),
+    loadImages().catch(() => {}),
+  ]);
   const launches = await Promise.all(logs.map(async l => {
     const ev = padIface.parseLog(l);
     const c = await padRead.curves(ev.args.token);
@@ -182,6 +241,7 @@ function viewCreate() {
       <form id="f">
         <label for="n">Name</label><input id="n" maxlength="32" required placeholder="Wheel Coin">
         <label for="s">Symbol</label><input id="s" maxlength="10" required placeholder="WHEEL" style="text-transform:uppercase">
+        ${C.IMAGES ? `<label>Image (optional)</label>${imagePicker("img")}` : ""}
         <label for="d">Description <small class="hint" id="dc">0/280</small></label><textarea id="d" maxlength="280" placeholder="What's the story? Keep it hamster-friendly."></textarea>
         <label for="b">Buy first (optional, Sepolia ETH)</label><input id="b" type="number" min="0" step="0.001" placeholder="0.01">
         <p class="hint">Buying in the same transaction means nobody can buy before you.</p>
@@ -205,6 +265,8 @@ function viewCreate() {
     </aside>
   </div>`;
   $("#d").oninput = () => $("#dc").textContent = $("#d").value.length + "/280";
+  let picked = null;
+  if (C.IMAGES) wirePicker("img", img => picked = img);
   $("#f").onsubmit = async ev => {
     ev.preventDefault();
     const msg = $("#msg"); msg.className = "msg";
@@ -224,6 +286,11 @@ function viewCreate() {
       msg.innerHTML = `Sent. Waiting for Sepolia… <a href="${explorer("tx", tx.hash)}" target="_blank" rel="noopener">tx</a>`;
       const rc = await tx.wait();
       const ev2 = rc.logs.map(l => { try { return padIface.parseLog(l); } catch { return null; } }).find(x => x && x.name === "Launched");
+      if (picked) {
+        msg.textContent = "Coin launched! Step 2/2: confirm the image transaction…";
+        try { await sendImage(ev2.args.token, picked); }
+        catch (e) { sessionStorage.setItem("imgFail", errText(e)); }
+      }
       cache.at = 0;
       location.hash = "t-" + ev2.args.token;
     } catch (e) { msg.className = "msg err"; msg.textContent = errText(e); }
@@ -280,6 +347,7 @@ async function viewToken(addr) {
         </dl>
       </div>
       <div class="card mt" id="feesCard" hidden></div>
+      ${C.IMAGES && account && account === x.creator ? `<div class="card mt"><h2>Coin image</h2><p class="hint">Only you, the creator, can change it.</p>${imagePicker("cimg")}<button class="btn primary mt" id="saveImg" disabled>Save image onchain</button><p class="msg" id="imsg"></p></div>` : ""}
     </aside>
   </div>`;
 
@@ -299,6 +367,17 @@ async function viewToken(addr) {
         catch (e) { m.className = "msg err"; m.textContent = errText(e); }
       };
     });
+  }
+  if ($("#saveImg")) {
+    let picked = null;
+    wirePicker("cimg", img => { picked = img; $("#saveImg").disabled = !img; });
+    let failed = null; try { failed = sessionStorage.getItem("imgFail"); sessionStorage.removeItem("imgFail"); } catch {}
+    if (failed) { const m = $("#imsg"); m.className = "msg err"; m.textContent = "Coin launched, but the image wasn't saved (" + failed + "). Pick it again here."; }
+    $("#saveImg").onclick = async () => {
+      const m = $("#imsg"); m.className = "msg";
+      try { $("#saveImg").disabled = true; m.textContent = "Confirm in your wallet…"; await sendImage(addr, picked); m.className = "msg ok"; m.textContent = "Saved."; route(); }
+      catch (e) { m.className = "msg err"; m.textContent = errText(e); $("#saveImg").disabled = false; }
+    };
   }
   if (!x.curve.graduated) tradePanel(x);
 }

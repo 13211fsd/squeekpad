@@ -5,7 +5,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 40%22%3E%3Ccircle cx=%2220%22 cy=%2220%22 r=%2217%22 fill=%22none%22 stroke=%22%23f08a24%22 stroke-width=%224%22/%3E%3C/svg%3E">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Deploy SqueekPad</title>
-<link rel="stylesheet" href="style.css?v=a6250e1">
+<link rel="stylesheet" href="style.css?v=img1">
 </head>
 <body>
 <main style="max-width:640px">
@@ -22,10 +22,17 @@
     <p class="msg" id="msg"></p>
     <pre id="out" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
   </div>
+  <div class="card mt">
+    <h2>Step 2 · Deploy coin images</h2>
+    <p>Deploys SqueekPadImages for the SqueekPad at <code id="padAddr"></code>, so creators can attach an image to their coin (stored onchain).</p>
+    <button class="btn primary mt" id="goImg">Deploy images contract</button>
+    <p class="msg" id="msg2"></p>
+    <pre id="out2" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+  </div>
 </main>
 <script src="ethers.umd.min.js"></script>
-<script src="contracts.js?v=a6250e1"></script>
-<script src="config.js?v=a6250e1"></script>
+<script src="contracts.js?v=img1"></script>
+<script src="config.js?v=img1"></script>
 <script>
 const C = window.SQUEEKPAD_CONFIG, $ = s => document.querySelector(s);
 $("#v").textContent = C.VIRTUAL_ETH + " ETH"; $("#n").textContent = C.SQUEEK_NFT; $("#f").textContent = C.UNI_V2_FACTORY; $("#w").textContent = C.WETH;
@@ -44,6 +51,25 @@ $("#go").onclick = async () => {
     const rc = await c.deploymentTransaction().wait();
     m.className = "msg ok"; m.textContent = "Deployed. Put these into config.js:";
     $("#out").textContent = `PAD: "${await c.getAddress()}",\nPAD_BLOCK: ${rc.blockNumber},`;
+  } catch (e) { m.className = "msg err"; m.textContent = e.shortMessage || e.message; }
+};
+$("#padAddr").textContent = C.PAD || "(deploy SqueekPad first and set PAD in config.js)";
+$("#goImg").disabled = !C.PAD;
+$("#goImg").onclick = async () => {
+  const m = $("#msg2");
+  try {
+    if (!window.ethereum) throw new Error("No browser wallet found");
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+    const hex = "0x" + C.CHAIN_ID.toString(16);
+    if (await window.ethereum.request({ method: "eth_chainId" }) !== hex) await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hex }] });
+    const signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
+    const f = new ethers.ContractFactory(window.IMAGES_ABI, window.IMAGES_BYTECODE, signer);
+    m.textContent = "Confirm in your wallet…";
+    const c = await f.deploy(C.PAD);
+    m.textContent = "Deploying… " + c.deploymentTransaction().hash;
+    const rc = await c.deploymentTransaction().wait();
+    m.className = "msg ok"; m.textContent = "Deployed. Put these into config.js:";
+    $("#out2").textContent = `IMAGES: "${await c.getAddress()}",\nIMAGES_BLOCK: ${rc.blockNumber},`;
   } catch (e) { m.className = "msg err"; m.textContent = e.shortMessage || e.message; }
 };
 </script>

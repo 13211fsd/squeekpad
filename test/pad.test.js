@@ -7,6 +7,7 @@ const pad = require("../build/SqueekPad.json");
 const tokenArt = require("../build/SqueekPadToken.json");
 const mock = require("../build/MockSqueek.json");
 const rej = require("../build/Rejector.json");
+const imgArt = require("../build/SqueekPadImages.json");
 const uniF = require("@uniswap/v2-core/build/UniswapV2Factory.json");
 const uniP = require("@uniswap/v2-core/build/UniswapV2Pair.json");
 const weth9 = require("@uniswap/v2-periphery/build/WETH9.json");
@@ -107,10 +108,12 @@ async function reverts(fn, name) {
   await t("sell returns ETH per quote without an approve", async () => {
     const amt = (await tok.balanceOf(await addr(bob))) / 2n;
     const q = await P.quoteSell(await tok.getAddress(), amt, await addr(bob));
-    const b0 = await bal(await addr(bob));
+    const f0 = await P.creatorFees(await addr(alice));
     const rc = await (await P.connect(bob).sell(await tok.getAddress(), amt, q)).wait();
-    const gas = rc.gasUsed * rc.gasPrice;
-    assert.equal((await bal(await addr(bob))) - b0 + gas, q);
+    // the pad paid out exactly q to the seller (its balance drops by q; the fee stays inside as creator fees)
+    const padA = await P.getAddress();
+    assert.equal((await provider.getBalance(padA, rc.blockNumber - 1)) - (await provider.getBalance(padA, rc.blockNumber)), q);
+    assert((await P.creatorFees(await addr(alice))) > f0);
   });
 
   await t("round trip never pays out more than was put in", async () => {
@@ -177,11 +180,14 @@ async function reverts(fn, name) {
   });
 
   await t("creator claims fees once", async () => {
-    const f = await P.creatorFees(await addr(alice));
+    const f = await P.creatorFees(await addr(alice), { blockTag: await provider.getBlockNumber() });
     assert(f > 0n);
-    const b0 = await bal(await addr(alice));
     const rc = await (await P.connect(alice).claimFees()).wait();
-    assert.equal((await bal(await addr(alice))) - b0 + rc.gasUsed * rc.gasPrice, f);
+    const padA = await P.getAddress();
+    assert.equal((await provider.getBalance(padA, rc.blockNumber - 1)) - (await provider.getBalance(padA, rc.blockNumber)), f);
+    const ev = rc.logs.map(l => { try { return P.interface.parseLog(l); } catch { return null; } }).find(x => x && x.name === "FeesClaimed");
+    assert.equal(ev.args.amount, f);
+    assert.equal(await P.creatorFees(await addr(alice)), 0n);
     await reverts(async () => P.connect(alice).claimFees.staticCall(), "ZeroAmount");
   });
 
@@ -200,6 +206,26 @@ async function reverts(fn, name) {
     const data = P.interface.encodeFunctionData("buy", [await t6.getAddress(), 0]);
     await reverts(async () => r.callPad.staticCall(await P.getAddress(), data, { value: E("5") }));
     assert.equal((await P.curves(await t6.getAddress())).graduated, false);
+  });
+
+  await t("images: only the coin's creator can set one, with size/mime limits", async () => {
+    const reg = await deploy(imgArt, deployer, await P.getAddress());
+    IFACES.push(reg.interface);
+    const t7 = await launch(alice, "Pic Coin", "PIC");
+    const png = "0x89504e470d0a1a0a" + "00".repeat(100);
+    const rc = await (await reg.connect(alice).setImage(await t7.getAddress(), "image/png", png)).wait();
+    const ev = reg.interface.parseLog(rc.logs[0]);
+    assert.equal(ev.args.token, await t7.getAddress());
+    assert.equal(ev.args.data, png);
+    await reverts(async () => reg.connect(bob).setImage.staticCall(await t7.getAddress(), "image/png", png), "NotCreator");
+    await reverts(async () => reg.connect(alice).setImage.staticCall(await t7.getAddress(), "image/svg+xml", png), "BadImage");
+    await reverts(async () => reg.connect(alice).setImage.staticCall(await t7.getAddress(), "image/png", "0x" + "00".repeat(24001)), "BadImage");
+    await reverts(async () => reg.connect(alice).setImage.staticCall(await addr(bob), "image/png", png), "NotCreator");
+    // a coin from a different pad is rejected
+    const P2 = await deploy(pad, deployer, VIRTUAL_ETH, await squeeks.getAddress(), await factory.getAddress(), await weth.getAddress());
+    const rc2 = await (await P2.connect(alice).launch("Other", "OTH", "", 0)).wait();
+    const other = rc2.logs.map(l => { try { return P2.interface.parseLog(l); } catch { return null; } }).find(x => x && x.name === "Launched").args.token;
+    await reverts(async () => reg.connect(alice).setImage.staticCall(other, "image/png", png), "NotCreator");
   });
 
   console.log(`\n${pass} passed, ${fail} failed`);

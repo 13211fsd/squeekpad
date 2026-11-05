@@ -20,6 +20,19 @@ const site = path.join(__dirname, "../site");
   const sq = await d(art("../build/MockSqueek.json"));
   const pad = await d(art("../build/SqueekPad.json"), ethers.parseEther("0.1"), await sq.getAddress(), await fac.getAddress(), await weth.getAddress());
   const PAD = await pad.getAddress();
+  const reg = await d(art("../build/SqueekPadImages.json"), PAD);
+  const IMAGES = await reg.getAddress();
+  // a real 64x64 PNG (orange square) to upload through the file picker
+  const zlib = require("zlib");
+  const png = (() => {
+    const w = 64, h = 64, raw = Buffer.alloc((w * 3 + 1) * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) raw.set([240, 138 + y, 36 + x], y * (w * 3 + 1) + 1 + x * 3);
+    const crc = b => { let c, t = []; for (let n = 0; n < 256; n++) { c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } let r = ~0; for (const x of b) r = t[(r ^ x) & 255] ^ (r >>> 8); return (~r) >>> 0; };
+    const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+    return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+  })();
+  const pngPath = path.join(SHOTS, "e2e_coin.png"); fs.writeFileSync(pngPath, png);
   const user = (await prov.listAccounts())[1].address;
 
   const srv = http.createServer((q, r) => {
@@ -27,7 +40,9 @@ const site = path.join(__dirname, "../site");
     if (f === "/config.js") {
       r.setHeader("Content-Type", "text/javascript");
       return r.end(fs.readFileSync(path.join(site, "config.js"), "utf8")
-        .replace('PAD: ""', `PAD: "${PAD}"`).replace("PAD_BLOCK: 0", "PAD_BLOCK: 0")
+        // override whatever the real config holds with the local test deployment
+        .replace(/PAD: "[^"]*"/, `PAD: "${PAD}"`).replace(/PAD_BLOCK: \d+/, "PAD_BLOCK: 0")
+        .replace(/IMAGES: "[^"]*"/, `IMAGES: "${IMAGES}"`).replace(/IMAGES_BLOCK: \d+/, "IMAGES_BLOCK: 0")
         .replace("https://ethereum-sepolia-rpc.publicnode.com", "http://127.0.0.1:8545"));
     }
     const p = path.join(site, f); if (!fs.existsSync(p)) { r.statusCode = 404; return r.end(); }
@@ -65,6 +80,8 @@ const site = path.join(__dirname, "../site");
   await step("launch with first buy -> lands on token page", async () => {
     await pg.goto("http://localhost:8766/#create"); await pg.waitForSelector("#n");
     await pg.type("#n", "Wheel <b>Coin</b>"); await pg.type("#s", "wheel"); await pg.type("#d", "Runs only when Squeektoshi runs. <script>alert(1)</script>"); await pg.type("#b", "0.01");
+    const fi = await pg.$("#img"); await fi.uploadFile(pngPath);
+    await waitText("#imgInfo", /KB (webp|jpeg)/);
     await pg.click("#go");
     await pg.waitForFunction(() => location.hash.startsWith("#t-0x"), { timeout: 30000 });
     await waitText("#trades", /Buy/);
@@ -82,6 +99,21 @@ const site = path.join(__dirname, "../site");
   await step("creator fee card shows and claims", async () => {
     await pg.reload(); await pg.waitForSelector("#claim", { timeout: 15000 });
     await pg.click("#claim"); await waitText("#cmsg", /Claimed/, 30000);
+  });
+  await step("launch image is stored onchain and shown on the coin page", async () => {
+    await pg.waitForFunction(() => { const i = document.querySelector(".tokhead img.avatar"); return i && i.src.startsWith("data:image/") && i.naturalWidth === 160; }, { timeout: 20000 });
+    const logs = await prov.getLogs({ address: IMAGES, fromBlock: 0, toBlock: "latest" });
+    if (logs.length !== 1) throw new Error("expected 1 ImageSet log, got " + logs.length);
+  });
+  await step("creator can replace the image from the coin page", async () => {
+    await pg.reload(); await pg.waitForSelector("#cimg", { timeout: 15000 });
+    const fi = await pg.$("#cimg"); await fi.uploadFile(pngPath);
+    await pg.waitForFunction(() => !document.querySelector("#saveImg").disabled, { timeout: 10000 });
+    await pg.click("#saveImg");
+    await pg.waitForFunction(async () => true, { timeout: 1000 });
+    const t0 = Date.now(); let n = 0;
+    while (Date.now() - t0 < 20000) { n = (await prov.getLogs({ address: IMAGES, fromBlock: 0, toBlock: "latest" })).length; if (n === 2) break; await wait(300); }
+    if (n !== 2) throw new Error("image not replaced onchain, logs=" + n);
   });
   await step("graduating buy -> Uniswap state", async () => {
     await pg.reload(); await pg.waitForSelector("#amt");

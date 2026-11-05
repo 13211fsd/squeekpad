@@ -4,7 +4,7 @@ const path = require("path");
 const solc = require("solc");
 
 const root = path.join(__dirname, "..");
-const files = ["contracts/SqueekPad.sol", "contracts/test/MockSqueek.sol"];
+const files = ["contracts/SqueekPad.sol", "contracts/SqueekPadImages.sol", "contracts/test/MockSqueek.sol"];
 const sources = Object.fromEntries(files.map(f => [f, { content: fs.readFileSync(path.join(root, f), "utf8") }]));
 
 const input = {

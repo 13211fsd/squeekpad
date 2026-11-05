@@ -2,6 +2,8 @@
 window.SQUEEKPAD_CONFIG = {
   PAD: "0x96C1C5978B1A782099Cf2FCd80558d0a1BCe14d1", // SqueekPad on Sepolia
   PAD_BLOCK: 12066969,     // deploy block (logs are read from here)
+  IMAGES: "",              // SqueekPadImages address (deploy.html, step 2); empty = images off
+  IMAGES_BLOCK: 0,
   CHAIN_ID: 11155111,
   RPC: "https://ethereum-sepolia-rpc.publicnode.com",
   EXPLORER: "https://sepolia.etherscan.io",

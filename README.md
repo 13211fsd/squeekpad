@@ -7,6 +7,7 @@ Launch a coin, trade it on a bonding curve, and watch it graduate to Uniswap V2 
 - **Squeek holders trade free.** The contract checks the Squeek NFT collection (`0xc4c7982657f00509548f3a3a41db7fa439a6856b`, from `api.squeekchain.com/v1/economy/state`) onchain: holders pay 0%, everyone else pays 1% to the coin's creator, claimable any time.
 - **No sniping, no off-curve games.** The creator can buy in the launch transaction. Until graduation, tokens can only move to/from the pad, so nobody can seed the Uniswap pair early.
 - **Ownerless.** No admin, no pause, no fee switch, no withdraw.
+- **Coin images, onchain.** Creators pick an image; the site crops it to 160×160 WebP (≤24KB) and `SqueekPadImages` stores it in an event log. Only the coin's creator can set or change it.
 - **Live wheel.** The header shows whether Squeektoshi is on his wheel right now (`/v1/status`).
 - **No backend.** The site reads everything from Sepolia logs and contract views. Static files only.
 

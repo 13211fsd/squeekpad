@@ -73,3 +73,7 @@ th{color:var(--muted);font-weight:600}
 .mt{margin-top:14px}
 h2{font-size:1.1rem;margin:0 0 8px}
 @media (max-width:560px){.top nav>a:not(.btn){display:none}.hero h1{font-size:1.3rem}}
+.pick{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.pick label.btn{margin:0;display:inline-block}
+.avatar{object-fit:cover}
+.avatar.ph{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:12px;background:var(--soft);font-size:1.4rem}
