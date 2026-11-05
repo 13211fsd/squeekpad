@@ -1,7 +1,7 @@
 // Fill PAD after deploying SqueekPad (deploy.html prints both values).
 window.SQUEEKPAD_CONFIG = {
-  PAD: "",                 // SqueekPad contract address on Sepolia
-  PAD_BLOCK: 0,            // block it was deployed in (logs are read from here)
+  PAD: "0x96C1C5978B1A782099Cf2FCd80558d0a1BCe14d1", // SqueekPad on Sepolia
+  PAD_BLOCK: 12066969,     // deploy block (logs are read from here)
   CHAIN_ID: 11155111,
   RPC: "https://ethereum-sepolia-rpc.publicnode.com",
   EXPLORER: "https://sepolia.etherscan.io",
